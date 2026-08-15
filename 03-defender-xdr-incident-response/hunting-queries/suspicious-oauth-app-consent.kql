@@ -1,0 +1,24 @@
+// suspicious-oauth-app-consent.kql
+// Stage   : 2 - Persistence via malicious OAuth application consent
+// MITRE   : T1550 - Use Alternate Authentication Material (illicit consent grant)
+// Source  : CloudAppEvents (Microsoft Defender for Cloud Apps, surfaced in Defender XDR Advanced Hunting)
+// Scenario: SIMULATED case study - see ../runbooks/incident-response-runbook.md
+
+CloudAppEvents
+| where TimeGenerated > ago(2d)
+| where ActionType in ("Consent to application.", "Add app role assignment to service principal.")
+| extend RawEventData_ = parse_json(RawEventData)
+| extend AppDisplayName = tostring(RawEventData_.ApplicationDisplayName),
+         Scopes = tostring(RawEventData_.PermissionScope),
+         UserId = tostring(RawEventData_.UserId)
+| where Scopes has_any ("Mail.Read", "Mail.ReadWrite", "Files.ReadWrite.All", "offline_access")
+| project TimeGenerated, UserId, AppDisplayName, Scopes, ActionType, IPAddress = tostring(RawEventData_.ClientIP)
+| sort by TimeGenerated desc
+
+// Analyst notes:
+// - offline_access + Mail.Read is the signature pattern of a consent-phishing app: it grants persistent
+//   mailbox access that survives a password reset (T1550) unless the app registration is also revoked.
+// - Response: revoke the OAuth grant via Entra ID > Enterprise Applications > (app) > Permissions > Revoke,
+//   in addition to disabling the user account in 02-sentinel-analytics-soar-playbooks.
+// - Check AppDisplayName against a known-publisher allow list; unverified publishers with broad mail scopes
+//   are the highest-priority row to investigate first.

@@ -1,0 +1,84 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "title": "Brute Force Followed By Success - Sentinel Scheduled Rule",
+    "description": "Detects 10+ failed sign-ins for a single account within 15 minutes, followed by a successful sign-in. MITRE ATT&CK T1110.",
+    "sc200Domain": "Manage a security operations environment"
+  },
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": { "description": "Name of the Log Analytics workspace hosting Microsoft Sentinel" }
+    },
+    "playbookLogicAppResourceId": {
+      "type": "string",
+      "metadata": { "description": "Resource ID of the auto-disable-compromised-user-playbook Logic App" }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "2023-02-01-preview",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/', guid('brute-force-success'))]",
+      "kind": "Scheduled",
+      "properties": {
+        "displayName": "Brute force sign-ins followed by successful authentication",
+        "description": "Flags accounts with 10+ failed sign-ins within 15 minutes followed by a success, indicating a likely successful credential-stuffing or brute-force attack.",
+        "severity": "High",
+        "enabled": true,
+        "query": "SigninLogs\n| where TimeGenerated > ago(15m)\n| summarize FailedCount = countif(ResultType != \"0\"), SuccessCount = countif(ResultType == \"0\"), LastSuccess = maxif(TimeGenerated, ResultType == \"0\") by UserPrincipalName, bin(TimeGenerated, 15m)\n| where FailedCount >= 10 and SuccessCount >= 1\n| project TimeGenerated, UserPrincipalName, FailedCount, SuccessCount, LastSuccess",
+        "queryFrequency": "PT15M",
+        "queryPeriod": "PT15M",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionEnabled": false,
+        "tactics": ["CredentialAccess"],
+        "techniques": ["T1110"],
+        "incidentConfiguration": {
+          "createIncident": true,
+          "groupingConfiguration": {
+            "enabled": true,
+            "reopenClosedIncident": false,
+            "lookbackDuration": "PT1H",
+            "matchingMethod": "AllEntities"
+          }
+        },
+        "entityMappings": [
+          {
+            "entityType": "Account",
+            "fieldMappings": [{ "identifier": "FullName", "columnName": "UserPrincipalName" }]
+          }
+        ],
+        "alertRuleTemplateName": null
+      }
+    },
+    {
+      "type": "Microsoft.SecurityInsights/automationRules",
+      "apiVersion": "2023-02-01-preview",
+      "name": "[guid('brute-force-auto-response')]",
+      "properties": {
+        "displayName": "Auto-trigger containment playbook on brute-force incident",
+        "order": 1,
+        "triggeringLogic": {
+          "isEnabled": true,
+          "triggersOn": "Incidents",
+          "triggersWhen": "Created",
+          "conditions": [
+            {
+              "conditionType": "Property",
+              "conditionProperties": { "propertyName": "IncidentSeverity", "operator": "Equals", "propertyValues": ["High"] }
+            }
+          ]
+        },
+        "actions": [
+          {
+            "order": 1,
+            "actionType": "RunPlaybook",
+            "actionConfiguration": { "logicAppResourceId": "[parameters('playbookLogicAppResourceId')]", "tenantId": "[subscription().tenantId]" }
+          }
+        ]
+      }
+    }
+  ]
+}

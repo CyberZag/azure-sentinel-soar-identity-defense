@@ -1,0 +1,28 @@
+// risky-sign-ins-hunt.kql
+// Purpose : Correlate Entra ID Identity Protection risk events with successful sign-ins.
+// Catches : Accounts flagged risky by Identity Protection that still completed authentication.
+// MITRE   : T1078 - Valid Accounts
+// Source  : SigninLogs, AADUserRiskEvents (Microsoft Entra ID diagnostic logs in Sentinel/Log Analytics)
+
+AADUserRiskEvents
+| where RiskLevel in ("medium", "high")
+| where TimeGenerated > ago(7d)
+| project RiskTime = TimeGenerated, UserPrincipalName, RiskEventType, RiskLevel, RiskState, RiskDetail
+| join kind=inner (
+    SigninLogs
+    | where ResultType == "0" // successful sign-in
+    | where TimeGenerated > ago(7d)
+    | project SigninTime = TimeGenerated, UserPrincipalName, AppDisplayName, IPAddress,
+              Location = tostring(LocationDetails.city), Country = tostring(LocationDetails.countryOrRegion),
+              DeviceDetail = tostring(DeviceDetail.operatingSystem), ConditionalAccessStatus
+) on UserPrincipalName
+| where SigninTime between ((RiskTime - 1h) .. (RiskTime + 1h))
+| project RiskTime, SigninTime, UserPrincipalName, RiskEventType, RiskLevel, RiskDetail,
+          AppDisplayName, IPAddress, Location, Country, DeviceDetail, ConditionalAccessStatus
+| sort by RiskTime desc
+
+// Analyst notes:
+// - RiskState == "atRisk" with ConditionalAccessStatus == "notApplied" is the highest-priority triage row:
+//   the risk engine flagged the sign-in AND no Conditional Access control intervened.
+// - Pivot on IPAddress across users to check for a shared attacker infrastructure pattern.
+// - Escalate any "high" RiskLevel row with a successful sign-in as a P1 identity incident.

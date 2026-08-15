@@ -1,0 +1,30 @@
+// lateral-movement-hunt.kql
+// Stage   : 2/3 - Execution, Foothold & Lateral Movement
+// MITRE   : T1059 (Command and Scripting Interpreter), T1021 (Remote Services)
+// Source  : DeviceProcessEvents, DeviceNetworkEvents (Microsoft Defender for Endpoint Advanced Hunting)
+// Scenario: SIMULATED case study - see ../runbooks/incident-response-runbook.md
+
+// Part A: suspicious PowerShell / LOLBin execution shortly after a phishing click
+let SuspiciousProcs =
+    DeviceProcessEvents
+    | where TimeGenerated > ago(2d)
+    | where FileName in~ ("powershell.exe", "pwsh.exe", "mshta.exe", "wscript.exe", "certutil.exe")
+    | where ProcessCommandLine has_any ("-enc", "-EncodedCommand", "downloadstring", "IEX", "bitsadmin", "-nop", "-w hidden")
+    | project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine, InitiatingProcessFileName;
+// Part B: outbound SMB/RDP connections from the same device shortly after
+let LateralHops =
+    DeviceNetworkEvents
+    | where TimeGenerated > ago(2d)
+    | where RemotePort in (445, 3389) and ActionType == "ConnectionSuccess"
+    | project HopTime = TimeGenerated, DeviceName, RemoteIP, RemotePort, InitiatingProcessFileName;
+SuspiciousProcs
+| join kind=inner LateralHops on DeviceName
+| where HopTime between (TimeGenerated .. (TimeGenerated + 2h))
+| project TimeGenerated, DeviceName, AccountName, FileName, ProcessCommandLine, HopTime, RemoteIP, RemotePort
+| sort by TimeGenerated asc
+
+// Analyst notes:
+// - The join window (2h) reflects a realistic dwell time between initial foothold and staged lateral movement.
+// - RemotePort 445 (SMB) hops paired with encoded PowerShell strongly suggest a living-off-the-land technique
+//   (e.g. PsExec-style remote execution) rather than legitimate admin activity - verify against a change ticket.
+// - Cross-reference AccountName with email-phishing-indicators.kql's AccountUpn to confirm the same identity chain.

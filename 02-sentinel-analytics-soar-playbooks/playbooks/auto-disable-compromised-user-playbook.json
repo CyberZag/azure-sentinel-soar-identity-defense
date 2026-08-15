@@ -1,0 +1,123 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "title": "Auto-Disable Compromised User Playbook",
+    "description": "Logic App triggered by a Microsoft Sentinel incident. Enriches the account, requests SOC approval via Teams, disables the account and revokes sessions on approval or High-severity timeout, then documents the action back on the incident.",
+    "sc200Domain": "Respond to security incidents"
+  },
+  "parameters": {
+    "PlaybookName": { "type": "string", "defaultValue": "auto-disable-compromised-user" },
+    "TeamsChannelId": { "type": "string", "metadata": { "description": "SOC Teams channel to post approval requests and notifications" } }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Logic/workflows",
+      "apiVersion": "2019-05-01",
+      "name": "[parameters('PlaybookName')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "state": "Enabled",
+        "definition": {
+          "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+          "contentVersion": "1.0.0.0",
+          "triggers": {
+            "Microsoft_Sentinel_incident": {
+              "type": "ApiConnectionWebhook",
+              "inputs": { "body": { "callback_url": "@{listCallbackUrl()}" }, "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } }, "path": "/incident-creation" }
+            }
+          },
+          "actions": {
+            "Get_incident_entities": {
+              "type": "ApiConnection",
+              "inputs": { "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } }, "method": "post", "path": "/entities/alerts" },
+              "runAfter": {}
+            },
+            "Get_user_details_from_Entra_ID": {
+              "type": "ApiConnection",
+              "inputs": { "host": { "connection": { "name": "@parameters('$connections')['azuread']['connectionId']" } }, "method": "get", "path": "/users/@{body('Get_incident_entities')?['userPrincipalName']}" },
+              "runAfter": { "Get_incident_entities": ["Succeeded"] }
+            },
+            "Post_approval_card_to_Teams_SOC_channel": {
+              "type": "ApiConnection",
+              "inputs": {
+                "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } },
+                "method": "post",
+                "path": "/flowbot/actions/notification/recipient/channel",
+                "body": {
+                  "channelId": "[parameters('TeamsChannelId')]",
+                  "notificationSummary": "Compromised account containment approval needed",
+                  "title": "Disable @{body('Get_user_details_from_Entra_ID')?['userPrincipalName']}?",
+                  "options": ["Approve", "Reject"]
+                }
+              },
+              "runAfter": { "Get_user_details_from_Entra_ID": ["Succeeded"] }
+            },
+            "Condition_ApproveOrHighSeverityTimeout": {
+              "type": "If",
+              "expression": {
+                "or": [
+                  { "equals": ["@body('Post_approval_card_to_Teams_SOC_channel')?['submitter']?['response']", "Approve"] },
+                  { "and": [
+                    { "equals": ["@triggerBody()?['object']?['properties']?['severity']", "High"] },
+                    { "equals": ["@body('Post_approval_card_to_Teams_SOC_channel')?['timedOut']", true] }
+                  ] }
+                ]
+              },
+              "actions": {
+                "Disable_user_account": {
+                  "type": "ApiConnection",
+                  "inputs": { "host": { "connection": { "name": "@parameters('$connections')['azuread']['connectionId']" } }, "method": "patch", "path": "/users/@{body('Get_user_details_from_Entra_ID')?['id']}", "body": { "accountEnabled": false } }
+                },
+                "Revoke_sign_in_sessions": {
+                  "type": "ApiConnection",
+                  "inputs": { "host": { "connection": { "name": "@parameters('$connections')['azuread']['connectionId']" } }, "method": "post", "path": "/users/@{body('Get_user_details_from_Entra_ID')?['id']}/revokeSignInSessions" },
+                  "runAfter": { "Disable_user_account": ["Succeeded"] }
+                },
+                "Add_comment_to_incident": {
+                  "type": "ApiConnection",
+                  "inputs": {
+                    "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } },
+                    "method": "post",
+                    "path": "/Incidents/comment",
+                    "body": { "incidentArmId": "@triggerBody()?['object']?['id']", "message": "Automated containment: account disabled and sessions revoked by auto-disable-compromised-user playbook." }
+                  },
+                  "runAfter": { "Revoke_sign_in_sessions": ["Succeeded"] }
+                },
+                "Notify_Teams_of_containment_action": {
+                  "type": "ApiConnection",
+                  "inputs": { "host": { "connection": { "name": "@parameters('$connections')['teams']['connectionId']" } }, "method": "post", "path": "/flowbot/actions/notification", "body": { "recipient": { "channelId": "[parameters('TeamsChannelId')]" }, "notificationSummary": "Account disabled and sessions revoked by automation." } },
+                  "runAfter": { "Add_comment_to_incident": ["Succeeded"] }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Add_comment_incident_not_contained": {
+                    "type": "ApiConnection",
+                    "inputs": {
+                      "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } },
+                      "method": "post",
+                      "path": "/Incidents/comment",
+                      "body": { "incidentArmId": "@triggerBody()?['object']?['id']", "message": "SOC rejected automated containment or approval was not received in time for a non-High severity incident. Manual review required." }
+                    }
+                  }
+                }
+              },
+              "runAfter": { "Post_approval_card_to_Teams_SOC_channel": ["Succeeded"] }
+            },
+            "Update_incident_status_and_owner": {
+              "type": "ApiConnection",
+              "inputs": {
+                "host": { "connection": { "name": "@parameters('$connections')['azuresentinel']['connectionId']" } },
+                "method": "put",
+                "path": "/Incidents",
+                "body": { "incidentArmId": "@triggerBody()?['object']?['id']", "status": "Active", "owner": { "assignedTo": "SOC-Tier2-OnCall" } }
+              },
+              "runAfter": { "Condition_ApproveOrHighSeverityTimeout": ["Succeeded", "Failed"] }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

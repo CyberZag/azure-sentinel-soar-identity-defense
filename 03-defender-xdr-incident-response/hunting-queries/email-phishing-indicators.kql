@@ -1,0 +1,26 @@
+// email-phishing-indicators.kql
+// Stage   : 1 - Initial Access
+// MITRE   : T1566 - Phishing
+// Source  : EmailEvents, UrlClickEvents (Microsoft Defender for Office 365 / Defender XDR Advanced Hunting)
+// Scenario: SIMULATED case study - see ../runbooks/incident-response-runbook.md
+
+EmailEvents
+| where TimeGenerated > ago(2d)
+| where ThreatTypes has "Phish" or DeliveryAction == "Blocked" or DeliveryLocation == "Junk"
+| project TimeGenerated, NetworkMessageId, SenderFromAddress, RecipientEmailAddress, Subject,
+          ThreatTypes, DeliveryAction, DeliveryLocation, UrlCount, AttachmentCount
+| join kind=inner (
+    UrlClickEvents
+    | where TimeGenerated > ago(2d)
+    | where ActionType == "ClickAllowed" or IsClickedThrough == true
+    | project ClickTime = TimeGenerated, NetworkMessageId, Url, AccountUpn, IPAddress
+) on NetworkMessageId
+| project TimeGenerated, ClickTime, RecipientEmailAddress, AccountUpn, SenderFromAddress, Subject,
+          Url, IPAddress, ThreatTypes, DeliveryAction, DeliveryLocation
+| sort by ClickTime desc
+
+// Analyst notes:
+// - A row where DeliveryAction == "Blocked" but a click still occurred means the user retrieved the message
+//   from Junk/Quarantine and clicked anyway - flag for targeted security-awareness follow-up.
+// - Pivot AccountUpn into lateral-movement-hunt.kql and suspicious-oauth-app-consent.kql to confirm
+//   whether this click correlates with endpoint or app-consent activity within the following hour.

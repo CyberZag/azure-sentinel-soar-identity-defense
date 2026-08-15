@@ -1,0 +1,34 @@
+// impossible-travel-detection.kql
+// Purpose : Detect two successful sign-ins for the same user from locations that are physically
+//           impossible to travel between in the elapsed time (classic account-compromise indicator).
+// MITRE   : T1078 - Valid Accounts
+// Source  : SigninLogs
+
+let speedThresholdKmh = 900.0; // ~ commercial flight speed, generous to reduce false positives
+SigninLogs
+| where ResultType == "0"
+| where isnotempty(LocationDetails.geoCoordinates)
+| project TimeGenerated, UserPrincipalName, IPAddress,
+          City = tostring(LocationDetails.city),
+          Country = tostring(LocationDetails.countryOrRegion),
+          Lat = todouble(LocationDetails.geoCoordinates.latitude),
+          Lon = todouble(LocationDetails.geoCoordinates.longitude)
+| sort by UserPrincipalName asc, TimeGenerated asc
+| serialize
+| extend PrevTime = prev(TimeGenerated), PrevUser = prev(UserPrincipalName),
+         PrevLat = prev(Lat), PrevLon = prev(Lon), PrevCity = prev(City), PrevCountry = prev(Country)
+| where UserPrincipalName == PrevUser
+| extend HoursElapsed = datetime_diff('minute', TimeGenerated, PrevTime) / 60.0
+| extend DistanceKm = geo_distance_2points(PrevLon, PrevLat, Lon, Lat) / 1000.0
+| where HoursElapsed > 0 and DistanceKm > 300 // ignore short local hops
+| extend RequiredSpeedKmh = DistanceKm / HoursElapsed
+| where RequiredSpeedKmh > speedThresholdKmh
+| project TimeGenerated, UserPrincipalName, PrevCity, PrevCountry, City, Country,
+          DistanceKm = round(DistanceKm, 0), HoursElapsed = round(HoursElapsed, 2),
+          RequiredSpeedKmh = round(RequiredSpeedKmh, 0), IPAddress
+| sort by RequiredSpeedKmh desc
+
+// Analyst notes:
+// - RequiredSpeedKmh far beyond 900 km/h (e.g. >2000) is a near-certain shared-credential or VPN-hopping case.
+// - Cross-reference with risky-sign-ins-hunt.kql: if Identity Protection also flagged the same UPN, escalate immediately.
+// - Known false-positive sources: corporate VPN egress points, cloud proxy services (exclude known egress IP ranges).

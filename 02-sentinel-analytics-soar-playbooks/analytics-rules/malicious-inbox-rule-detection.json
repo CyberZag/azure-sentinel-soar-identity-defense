@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "title": "Suspicious Inbox Forwarding Rule - Sentinel Scheduled Rule",
+    "description": "Detects newly created Exchange inbox rules that auto-forward mail externally or hide/delete security alert mail — a classic Business Email Compromise (BEC) persistence indicator.",
+    "sc200Domain": "Manage a security operations environment"
+  },
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": { "description": "Name of the Log Analytics workspace hosting Microsoft Sentinel" }
+    },
+    "trustedDomains": {
+      "type": "array",
+      "defaultValue": [],
+      "metadata": { "description": "List of internal/approved external domains excluded from the forwarding check" }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "2023-02-01-preview",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/', guid('malicious-inbox-rule'))]",
+      "kind": "Scheduled",
+      "properties": {
+        "displayName": "New mailbox rule forwards or hides mail suspiciously",
+        "description": "Flags New-InboxRule / Set-InboxRule operations in Exchange audit logs that forward mail to an external address, or that mark security-alert mail as read and move it to a rarely-checked folder.",
+        "severity": "High",
+        "enabled": true,
+        "query": "OfficeActivity\n| where TimeGenerated > ago(1h)\n| where Operation in (\"New-InboxRule\", \"Set-InboxRule\")\n| extend Parameters_ = parse_json(Parameters)\n| extend ForwardTo = tostring(Parameters_.ForwardTo), RedirectTo = tostring(Parameters_.RedirectTo), MarkAsRead = tostring(Parameters_.MarkAsRead), MoveToFolder = tostring(Parameters_.MoveToFolder)\n| where isnotempty(ForwardTo) or isnotempty(RedirectTo) or (MarkAsRead == \"True\" and isnotempty(MoveToFolder))\n| project TimeGenerated, UserId, Operation, ForwardTo, RedirectTo, MarkAsRead, MoveToFolder, ClientIP",
+        "queryFrequency": "PT1H",
+        "queryPeriod": "PT1H",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionEnabled": false,
+        "tactics": ["Persistence", "Exfiltration"],
+        "techniques": ["T1114.003"],
+        "incidentConfiguration": {
+          "createIncident": true,
+          "groupingConfiguration": { "enabled": true, "reopenClosedIncident": false, "lookbackDuration": "PT1H", "matchingMethod": "AllEntities" }
+        },
+        "entityMappings": [
+          { "entityType": "Account", "fieldMappings": [{ "identifier": "Name", "columnName": "UserId" }] },
+          { "entityType": "IP", "fieldMappings": [{ "identifier": "Address", "columnName": "ClientIP" }] }
+        ]
+      }
+    }
+  ]
+}

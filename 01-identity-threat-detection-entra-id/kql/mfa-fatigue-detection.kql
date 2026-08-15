@@ -1,0 +1,34 @@
+// mfa-fatigue-detection.kql
+// Purpose : Detect "MFA bombing" / MFA fatigue attacks — repeated push notifications sent to a user
+//           in a short window, often ending in an eventual (fatigued) approval.
+// MITRE   : T1621 - Multi-Factor Authentication Request Generation
+// Source  : SigninLogs (AuthenticationDetails), or AADNonInteractiveUserSignInLogs where applicable
+
+SigninLogs
+| where TimeGenerated > ago(1d)
+| where AuthenticationRequirement == "multiFactorAuthentication"
+| mv-expand AuthDetail = parse_json(AuthenticationDetails)
+| project TimeGenerated, UserPrincipalName, IPAddress,
+          AuthMethod = tostring(AuthDetail.authenticationMethod),
+          AuthResult = tostring(AuthDetail.authenticationStepResultDetail),
+          ResultType
+| where AuthMethod in ("Mobile app notification", "Push Notification")
+| summarize
+    PromptCount = count(),
+    FailedPrompts = countif(AuthResult has_any ("denied", "timeout", "Timeout", "Declined")),
+    SucceededPrompts = countif(AuthResult has_any ("succeeded", "Success", "approved")),
+    FirstPrompt = min(TimeGenerated),
+    LastPrompt = max(TimeGenerated),
+    DistinctIPs = dcount(IPAddress)
+    by UserPrincipalName, bin(TimeGenerated, 10m)
+| where PromptCount >= 5
+| extend WindowMinutes = datetime_diff('minute', LastPrompt, FirstPrompt)
+| where WindowMinutes <= 10
+| project UserPrincipalName, FirstPrompt, LastPrompt, PromptCount, FailedPrompts, SucceededPrompts, DistinctIPs
+| sort by PromptCount desc
+
+// Analyst notes:
+// - PromptCount >= 5 with an eventual SucceededPrompts >= 1 in the same window is the highest-confidence pattern.
+// - DistinctIPs > 1 during the burst suggests the attacker is retrying the password-spray/replay from rotating infrastructure.
+// - Recommended response (see 02-sentinel-analytics-soar-playbooks): trigger a playbook to require re-authentication
+//   with number-matching MFA and notify the user directly via a secondary channel.
