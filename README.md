@@ -12,12 +12,12 @@
 
 ## 🎯 Objective
 
-This repository is my working portfolio for the **[Microsoft Certified: Security Operations Analyst Associate (SC-200)](https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/sc-200)** path — the certification most directly aligned with the **Azure / Cloud Security Analyst** roles I'm targeting.
+This repository is a learning portfolio aligned to the **[Microsoft Certified: Security Operations Analyst Associate (SC-200)](https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/sc-200)** study path. It documents Azure and security-operations concepts through lab artifacts; it does not represent an earned certification or production experience.
 
-Instead of only studying exam objectives, each project here is a working artifact — KQL detections, Sentinel analytics rules, Logic Apps SOAR playbooks, and an incident-response runbook — built the way a Tier 1/2 SOC analyst would actually use them on the job.
+Alongside exam study, the repository contains draft lab artifacts — KQL detections, Sentinel analytics-rule examples, a Logic Apps playbook design, and an incident-response runbook. Each requires authorized environment-specific validation before use.
 
 This repo is a companion to two other portfolio repos:
-- [`101-cybersecurity-analyst`](https://github.com/CyberZag/101-cybersecurity-analyst) — foundational course modules (networking, Linux, SIEM basics, IR fundamentals)
+- [`101-cybersecurity-analyst`](https://github.com/CyberZag/101-cybersecurity-analyst) — personal cybersecurity study roadmap
 - [`azure-security-labs`](https://github.com/CyberZag/azure-security-labs) — hands-on Azure identity/Sentinel labs with Python tooling
 
 Where those repos cover *fundamentals*, this repo goes deeper into the **Sentinel SOAR automation, identity threat detection, and Defender XDR incident response** skills that SC-200 actually tests.
@@ -28,9 +28,9 @@ Where those repos cover *fundamentals*, this repo goes deeper into the **Sentine
 
 | # | Project | SC-200 Domain | Tools Used | MITRE Techniques | Status |
 |---|---------|---------------|------------|-------------------|--------|
-| 01 | [Identity Threat Detection — Entra ID](./01-identity-threat-detection-entra-id/) | Manage a security operations environment · Perform threat hunting | KQL, Microsoft Graph API, Entra ID Identity Protection | T1078 · T1621 · T1556 · T1204 | ✅ Complete |
-| 02 | [Sentinel Analytics Rules & SOAR Playbooks](./02-sentinel-analytics-soar-playbooks/) | Manage a security operations environment · Respond to security incidents | Microsoft Sentinel, Logic Apps, ARM templates | T1110 · T1078.004 · T1531 | ✅ Complete |
-| 03 | [Defender XDR Incident Response](./03-defender-xdr-incident-response/) | Respond to security incidents · Perform threat hunting | Microsoft Defender XDR, Advanced Hunting (KQL) | T1566 · T1059 · T1021 · T1550 | ✅ Complete |
+| 01 | [Identity Threat Detection — Entra ID](./01-identity-threat-detection-entra-id/) | Manage a security operations environment · Perform threat hunting | KQL, Microsoft Graph API, Entra ID Identity Protection | T1078 · T1621 · T1556 · T1204 | Draft — lab validation pending |
+| 02 | [Sentinel Analytics Rules & SOAR Playbooks](./02-sentinel-analytics-soar-playbooks/) | Manage a security operations environment · Respond to security incidents | Microsoft Sentinel, Logic Apps, ARM templates | T1110 · T1078.004 · T1531 | Draft — lab validation pending |
+| 03 | [Defender XDR Incident Response](./03-defender-xdr-incident-response/) | Respond to security incidents · Perform threat hunting | Microsoft Defender XDR, Advanced Hunting (KQL) | T1566 · T1059 · T1021 · T1550 | Simulated scenario |
 
 ### MITRE ATT&CK Technique Reference
 
@@ -68,7 +68,7 @@ See [`docs/sc-200-exam-mapping.md`](./docs/sc-200-exam-mapping.md) for the full 
 - Azure subscription with Microsoft Sentinel + Microsoft Entra ID (free tier / trial is sufficient for lab work)
 - Microsoft Defender XDR trial or E5 sandbox tenant for Advanced Hunting
 - Python 3.8+, Azure CLI, Git
-- Basic KQL familiarity (built on top of [`101-cybersecurity-analyst`](https://github.com/CyberZag/101-cybersecurity-analyst) module 09 — SIEM tools)
+- Basic KQL familiarity; the linked [`101-cybersecurity-analyst`](https://github.com/CyberZag/101-cybersecurity-analyst) repository is a study roadmap, not a completed module set
 
 ---
 
@@ -84,7 +84,7 @@ See [`docs/sc-200-exam-mapping.md`](./docs/sc-200-exam-mapping.md) for the full 
 
 ## ⚠️ Scope & Honesty Note
 
-All KQL queries, analytics rule and playbook JSON, and scripts in this repo are **working templates built and validated against Microsoft's documented schemas** — they are designed to run against a real Sentinel/Entra ID/Defender tenant. The incident-response runbook uses a clearly labeled **simulated scenario**, not a real breach. Nothing here claims a real incident occurred; sanitized evidence will be added only after I run these against my own lab tenant.
+The KQL, JSON, scripts, and runbook are educational lab artifacts. They are not evidence of a production deployment, a live incident, or completed tenant validation. Review current Microsoft documentation, test in an authorized tenant, tune for the local schema, and use least-privilege credentials before relying on any artifact. The incident-response runbook is explicitly a simulated scenario, not a record of a real breach.
 
 ---
 

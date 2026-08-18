@@ -5,12 +5,12 @@
 
 ## Scenario
 
-Writing a detection is half the job; the other half is making sure the response happens in seconds, not the hours it takes a human analyst to notice, triage, and act. This project pairs two **Microsoft Sentinel scheduled analytics rules** with a **Logic Apps SOAR playbook** that automatically contains a compromised account the moment an incident is created — the exact "Configure Security Orchestration Automation and Response (SOAR) in Microsoft Sentinel" skill SC-200 tests.
+This educational design pairs two Sentinel analytics-rule examples with a Logic Apps SOAR playbook template. It illustrates a possible detection-to-containment workflow for SC-200 study; it has not been presented as a deployed or validated automation.
 
 ## What this project demonstrates
 
-1. Two **ARM-deployable Sentinel scheduled analytics rules** (brute force, malicious inbox rule creation).
-2. A **Logic Apps playbook** (ARM template) triggered by a Sentinel incident that disables the user, revokes active sessions, and posts a Teams alert — with a human-approval step before the disable action fires.
+1. Two Sentinel analytics-rule JSON examples (brute force and malicious inbox rule creation).
+2. A Logic Apps playbook template that models account disablement, session revocation, and Teams notification with an approval gate.
 
 ## Files
 
@@ -32,11 +32,11 @@ Writing a detection is half the job; the other half is making sure the response 
 | `brute-force-detection-rule.json` | 10+ failed sign-ins for one account within 15 minutes, followed by a success | High |
 | `malicious-inbox-rule-detection.json` | New Exchange inbox rule created with auto-forward to an external domain or that hides/deletes+moves security alert mail | High |
 
-Both rules are written to **auto-create a Sentinel incident** and **auto-trigger the playbook** in `playbooks/`, using Sentinel's "automated response" trigger — no manual step required between detection and containment.
+The JSON describes intended incident creation and automation-rule behavior. Before use, validate the resource types, connector configuration, permissions, API versions, and response safety controls in an authorized test tenant.
 
 ## SOAR playbook logic
 
-`auto-disable-compromised-user-playbook.json` implements this flow:
+`auto-disable-compromised-user-playbook.json` models this flow:
 
 1. **Trigger:** Microsoft Sentinel incident created (via the "When Azure Sentinel incident creation rule was triggered" connector)
 2. **Enrich:** Look up the affected user's UPN and current sign-in risk in Entra ID
@@ -49,7 +49,7 @@ This mirrors Microsoft's own reference architecture for [Sentinel automation rul
 
 ## Analyst takeaway
 
-SC-200 explicitly tests "use playbooks to remediate threats" and "use playbooks to manage incidents." This project shows the full loop: detection rule → incident → automated, auditable, human-gated containment — the SOAR maturity level that separates a manual SOC from an automated one.
+SC-200 explicitly tests "use playbooks to remediate threats" and "use playbooks to manage incidents." This project documents the intended loop — detection rule → incident → human-gated containment — for study and review. It is not evidence of an operational SOC automation.
 
 ## Sources
 
